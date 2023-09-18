@@ -1,0 +1,8 @@
+name: Mcs
+version: '${version}'
+main: pl.fratik.mcs.bukkit.PaperMain
+api-version: 1.19
+authors: [ fratik ]
+load: STARTUP
+bootstrapper: pl.fratik.mcs.bukkit.PaperBootstrap
+loader: pl.fratik.mcs.bukkit.PaperLoader

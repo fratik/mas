@@ -1,0 +1,19 @@
+# Default ignored files
+/shelf/
+/workspace.xml
+/discord.xml
+/sonarlint
+# Editor-based HTTP Client requests
+/httpRequests/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+/dynamic.xml
+/uiDesigner.xml
+/dbnavigator.xml
+/runConfigurations
+/jpa-buddy.xml
+/modules.xml
+/modules
+/gradle.xml
+/compiler.xml
