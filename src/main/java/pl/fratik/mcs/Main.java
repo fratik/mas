@@ -181,9 +181,14 @@ public class Main extends ChannelInboundHandlerAdapter {
             ctx.writeAndFlush(new DisconnectPacket(new TranslateChatComponent("multiplayer.disconnect.not_whitelisted", null, "Nie jesteś na białej liście tego serwera!", 393), protVer)).addListener(ChannelFutureListener.CLOSE);
             return;
         }
-        LOGGER.info("<- Uruchamiam serwer");
-        ctx.writeAndFlush(new DisconnectPacket(new TextChatComponent("Uruchamiam serwer."), protVer)).addListener(ChannelFutureListener.CLOSE)
-                .addListener((ChannelFutureListener) f -> closeServer());
+        if (Bootstrap.getBackuper().isCriticalBackupInProgress()) {
+            LOGGER.info("<- Krytyczny backup w toku, poczekaj");
+            ctx.writeAndFlush(new DisconnectPacket(new TextChatComponent("Krytyczny backup w toku, poczekaj chwilę i spróbuj ponownie!"), protVer)).addListener(ChannelFutureListener.CLOSE);
+        } else {
+            LOGGER.info("<- Uruchamiam serwer");
+            ctx.writeAndFlush(new DisconnectPacket(new TextChatComponent("Uruchamiam serwer."), protVer)).addListener(ChannelFutureListener.CLOSE)
+                    .addListener((ChannelFutureListener) f -> closeServer());
+        }
     }
 
     @Override

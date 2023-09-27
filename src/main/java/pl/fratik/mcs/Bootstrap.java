@@ -20,6 +20,7 @@ package pl.fratik.mcs;
 import ch.qos.logback.classic.spi.LogbackServiceProvider;
 import com.google.common.io.CharStreams;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import io.netty.bootstrap.ServerBootstrap;
@@ -35,6 +36,7 @@ import pl.fratik.mcs.players.WhitelistPlayer;
 
 import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ServiceLoader;
 import java.util.UUID;
@@ -44,54 +46,37 @@ import java.util.regex.Pattern;
 public class Bootstrap {
     private static final Logger LOGGER = LoggerFactory.getLogger(Bootstrap.class);
     @Getter private static Channel channel;
+    @Getter private static Integer port = null;
     @Getter private static Whitelist whitelist = null;
     @Getter private static boolean premium = true;
+    @Getter private static McsConfig config;
+    @Getter private static Backuper backuper;
 
     public static void main(String[] args) throws InterruptedException, IOException {
         ServiceLoader.load(LogbackServiceProvider.class);
         LOGGER.info("Wystartowano");
         LOGGER.info("Sprawdzam konfigurację");
         LOGGER.debug("Czytam server.properties");
-        Integer port = null;
-        try (FileReader fr = new FileReader("./server.properties")) {
-            String props = CharStreams.toString(fr);
-            Pattern p = Pattern.compile("server-port=(\\d{1,5})");
-            Matcher m = p.matcher(props);
-            if (m.find()) {
-                try {
-                    port = Integer.parseInt(m.group(1));
-                } catch (Exception ignored) {}
-            }
-            if (props.contains("online-mode=false")) premium = false;
-            if (props.contains("enforce-whitelist=true")) whitelist = (premium ? new PremiumWhitelist() : new NonPremiumWhitelist());
-            LOGGER.debug("Odczytano server.properties");
-        } catch (FileNotFoundException e) {
-            LOGGER.error("Plik server.properties nie istnieje", e);
-            System.exit(1);
-        } catch (Exception e) {
-            LOGGER.error("Nie udało się odczytać pliku server.properties", e);
-            System.exit(1);
-        }
+        readServerProperties();
         if (port == null) {
             LOGGER.error("Nie udało się odczytać portu!");
             System.exit(1);
         }
-        if (whitelist != null) {
-            try (FileReader fr = new FileReader("./whitelist.json")) {
-                for (JsonElement el : new Gson().fromJson(fr, JsonArray.class))
-                    whitelist.add(new WhitelistPlayer(el.getAsJsonObject().get("name").getAsString(),
-                            UUID.fromString(el.getAsJsonObject().get("uuid").getAsString())));
-            } catch (FileNotFoundException e) {
-                LOGGER.error("Plik whitelist.json nie istnieje", e);
-                System.exit(1);
-            } catch (Exception e) {
-                LOGGER.error("Nie udało się odczytać", e);
-                System.exit(1);
-            }
-        }
-        LOGGER.info("Odczytano konfigurację: port: {}; whitelista {}; online-mode: {}", port,
+        if (whitelist != null) readWhitelist();
+        readConfig();
+        String backupString;
+        if (config.isBackupsEnabled()) {
+            backupString = "włączone (folder: ";
+            backupString += config.getBackupDirectory();
+            backupString += "; ilosć backupów do zachowania: ";
+            backupString += config.getBackupRetention();
+            backupString += "; ilosć folderów do przechowania: ";
+            backupString += config.getBackupInclude().size();
+            backupString += ")";
+        } else backupString = "wyłączone";
+        LOGGER.info("Odczytano konfigurację: port: {}; whitelista {}; online-mode: {}; backupy: {}", port,
                 whitelist != null ? String.format("włączona (%s osób)", whitelist.size()) : "wyłączona",
-                premium ? "włączony" : "wyłączony (!)");
+                premium ? "włączony" : "wyłączony (!)", backupString);
         EventLoopGroup bossGroup = new NioEventLoopGroup();
         EventLoopGroup workerGroup = new NioEventLoopGroup();
         try {
@@ -114,13 +99,67 @@ public class Bootstrap {
             LOGGER.debug("Startuję nasłuch...");
             ChannelFuture f = b.bind(port).sync();
             LOGGER.info("Gotowy na połączenia!");
-
+            if (config.isBackupsEnabled()) backuper = new Backuper();
             channel = f.channel();
             channel.closeFuture().sync();
             LOGGER.info("Nasłuch zakończony!");
         } finally {
             workerGroup.shutdownGracefully();
             bossGroup.shutdownGracefully();
+            if (!backuper.shutdown()) System.exit(1);
         }
     }
+
+    private static void readServerProperties() {
+        try (FileReader fr = new FileReader("./server.properties")) {
+            String props = CharStreams.toString(fr);
+            Pattern p = Pattern.compile("server-port=(\\d{1,5})");
+            Matcher m = p.matcher(props);
+            if (m.find()) {
+                try {
+                    port = Integer.parseInt(m.group(1));
+                } catch (Exception ignored) {}
+            }
+            if (props.contains("online-mode=false")) premium = false;
+            if (props.contains("enforce-whitelist=true")) whitelist = (premium ? new PremiumWhitelist() : new NonPremiumWhitelist());
+            LOGGER.debug("Odczytano server.properties");
+        } catch (FileNotFoundException e) {
+            LOGGER.error("Plik server.properties nie istnieje", e);
+            System.exit(1);
+        } catch (Exception e) {
+            LOGGER.error("Nie udało się odczytać pliku server.properties", e);
+            System.exit(1);
+        }
+    }
+
+    private static void readWhitelist() {
+        try (FileReader fr = new FileReader("./whitelist.json")) {
+            for (JsonElement el : new Gson().fromJson(fr, JsonArray.class))
+                whitelist.add(new WhitelistPlayer(el.getAsJsonObject().get("name").getAsString(),
+                        UUID.fromString(el.getAsJsonObject().get("uuid").getAsString())));
+        } catch (FileNotFoundException e) {
+            LOGGER.error("Plik whitelist.json nie istnieje", e);
+            System.exit(1);
+        } catch (Exception e) {
+            LOGGER.error("Nie udało się odczytać", e);
+            System.exit(1);
+        }
+    }
+
+    private static void readConfig() throws IOException {
+        try (FileReader fr = new FileReader("./mcs-config.json")) {
+            config = new Gson().fromJson(fr, McsConfig.class);
+        } catch (FileNotFoundException e) {
+            LOGGER.info("Utworzono domyślny config!");
+            config = new McsConfig();
+            try (FileWriter fw = new FileWriter("./mcs-config.json")) {
+                new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create().toJson(config, fw);
+                fw.flush();
+            }
+        } catch (Exception e) {
+            LOGGER.error("Nie udało się załadować configu!", e);
+            System.exit(1);
+        }
+    }
+
 }
