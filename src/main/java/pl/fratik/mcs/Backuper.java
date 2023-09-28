@@ -29,24 +29,22 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
+import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
 
 public class Backuper {
     private static final Logger LOGGER = LoggerFactory.getLogger(Backuper.class);
     private static final SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd-HH");
     private final ScheduledExecutorService backupExecutor;
-    private final ScheduledFuture<?> backupTask;
     // critical backup = "the first backup of the day"
     // prevents a user from shutting down the server for the first daily backup
     // shutting down the server while a backup in progress is okay, we can handle it
@@ -58,7 +56,26 @@ public class Backuper {
 
     public Backuper() {
         backupExecutor = Executors.newSingleThreadScheduledExecutor();
-        backupTask = backupExecutor.scheduleWithFixedDelay(this::backup, 0, 5, TimeUnit.MINUTES);
+        autobackup();
+    }
+
+    private static Date getNextHour() {
+        return getNextHour(new Date());
+    }
+
+    private static Date getNextHour(Date from) {
+        Calendar cal = Calendar.getInstance();
+        cal.setTime(from);
+        cal.add(Calendar.HOUR, 1);
+        cal.set(Calendar.MINUTE, 0);
+        cal.set(Calendar.SECOND, 0);
+
+        return cal.getTime();
+    }
+
+    private void autobackup() {
+        backup();
+        if (!backupExecutor.isShutdown()) backupExecutor.schedule(this::backup, getNextHour().getTime(), TimeUnit.MILLISECONDS);
     }
 
     public boolean shutdown() throws InterruptedException {
@@ -86,36 +103,91 @@ public class Backuper {
                 Files.createDirectory(directory.toPath());
             } catch (IOException e) {
                 LOGGER.error("Nie udało się utworzyć folderu z backupami!");
-                backupTask.cancel(false);
+                backupExecutor.shutdown();
                 return;
             }
         }
+        for (Iterator<String> iterator = Bootstrap.getConfig().getBackupInclude().iterator(); iterator.hasNext(); ) {
+            String include = iterator.next();
+            if (!Paths.get("./", include).normalize().toAbsolutePath().startsWith(Paths.get("./").normalize().toAbsolutePath())) {
+                LOGGER.warn("Ścieżka {} jest nieprawidłowa!", include);
+                iterator.remove();
+            }
+        }
         Instant now = Instant.now();
-        String sdfFormatted = sdf.format(Date.from(now));
-        File backupFile = new File(directory, sdfFormatted + ".zip");
-        if (backupFile.exists()) {
-            LOGGER.info("Backup na obecną godzinę już istnieje, nie duplikuję!");
+        String backupFileName = sdf.format(new Date(now.toEpochMilli())) + ".zip";
+        File[] backupsList = directory.listFiles();
+        Arrays.sort(backupsList, (a, b) -> {
+            try {
+                Date date = sdf.parse(b.getName().substring(0, 13));
+                return date.compareTo(sdf.parse(a.getName().substring(0, 13)));
+            } catch (Exception e) {
+                return -1;
+            }
+        });
+        byte[] lastSha256 = null;
+        byte[] currSha256 = null;
+        if (backupsList.length > 0) {
+            try (ZipFile zf = new ZipFile(backupsList[0], ZipFile.OPEN_READ)) {
+                lastSha256 = HexUtil.hexToByte(zf.getComment().split("\n\n")[1]);
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        if (lastSha256 != null) {
+            try {
+                MessageDigest dig = MessageDigest.getInstance("SHA-256");
+                for (String include : Bootstrap.getConfig().getBackupInclude()) {
+                    checkInterruption();
+                    File includeFile = new File(include);
+                    if (!includeFile.exists()) {
+                        LOGGER.warn("Ścieżka {} nie istnieje!", include);
+                        continue;
+                    }
+                    updateDigest(dig, includeFile);
+                }
+                currSha256 = dig.digest();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                LOGGER.error("Przerwano.");
+                return;
+            } catch (Exception e) {
+                // ignore
+            }
+        }
+        if (lastSha256 != null && Arrays.equals(lastSha256, currSha256)) {
+            LOGGER.info("Nie znaleziono zmian w kopii zapasowej, zmieniam datę poprzedniej");
+            try {
+                Files.move(backupsList[0].toPath(), backupsList[0].toPath().resolveSibling(backupFileName));
+            } catch (IOException e) {
+                LOGGER.error("Skill issue", e);
+            }
             return;
         }
-        File[] oldBackups = directory.listFiles((dir, name) -> name.startsWith(sdfFormatted.substring(0, 10)));
-        if (oldBackups == null || oldBackups.length == 0) criticalBackupInProgress = true;
+        if (backupsList.length == 0 || isBackupOlderThan24H(backupsList[0].getName())) criticalBackupInProgress = true;
+        File backupFile = new File(directory, backupFileName);
+        Set<Path> retainFiles = new HashSet<>();
+        retainFiles.add(backupFile.toPath());
+        if (!backupFile.equals(backupsList[0]) ){
+            File[] temp = new File[backupsList.length + 1];
+            System.arraycopy(backupsList, 0, temp, 1, backupsList.length);
+            temp[0] = backupFile;
+            backupsList = temp;
+        }
         try (ZipOutputStream zos = new ZipOutputStream(new FileOutputStream(backupFile))) {
+            MessageDigest dig = MessageDigest.getInstance("SHA-256");
             for (String include : Bootstrap.getConfig().getBackupInclude()) {
                 checkInterruption();
-                if (!Paths.get("./", include).normalize().toAbsolutePath().startsWith(Paths.get("./").normalize().toAbsolutePath())) {
-                    LOGGER.warn("Ścieżka {} jest nieprawidłowa!", include);
-                    continue;
-                }
                 File includeFile = new File(include);
                 if (!includeFile.exists()) {
                     LOGGER.warn("Ścieżka {} nie istnieje!", include);
-                } else {
-                    compressZip(zos, includeFile);
+                    continue;
                 }
+                compressZip(zos, dig, includeFile);
             }
             Date end = new Date();
-            zos.setComment(String.format("Written by MCS.\nBackup start: %s\nBackup end: %s\nBackup took: %d second(s).",
-                    Date.from(now), end, Math.round((end.getTime() - now.toEpochMilli()) / 1000d)));
+            zos.setComment(String.format("Written by MCS.\nBackup start: %s\nBackup end: %s\nBackup took: %d second(s).\n\n%s",
+                    Date.from(now), end, Math.round((end.getTime() - now.toEpochMilli()) / 1000d), HexUtil.byteToHex(dig.digest())));
         } catch (Exception e) {
             if (e instanceof InterruptedException) {
                 LOGGER.error("Tworzenie backupu zostało przerwane!");
@@ -131,33 +203,26 @@ public class Backuper {
         LOGGER.info("Backup ukończony! {}", backupFile);
         int i = 0;
         LOGGER.info("Usuwam stare backupy...");
-        if (oldBackups != null) {
-            for (File oldBackup : oldBackups) {
-                try {
-                    Files.delete(oldBackup.toPath());
-                    i++;
-                } catch (IOException e) {
-                    LOGGER.error("Nie udało się usunąć!", e);
-                }
-            }
-        }
         int dayCounter = 0;
-        List<Path> retainFiles = new ArrayList<>();
-        while (dayCounter < Bootstrap.getConfig().getBackupRetention()) {
-            Calendar cal = Calendar.getInstance();
-            cal.setTime(new Date());
-            cal.set(Calendar.HOUR_OF_DAY, 0);
-            cal.set(Calendar.MINUTE, 0);
-            cal.set(Calendar.SECOND, 0);
-            cal.set(Calendar.MILLISECOND, 0);
-            cal.add(Calendar.DAY_OF_MONTH, -dayCounter);
-            Instant instant = Instant.ofEpochMilli(cal.getTimeInMillis());
-            for (File file : directory.listFiles((dir, name) -> name.startsWith(sdf.format(Date.from(instant)).substring(0, 10)))) {
-                retainFiles.add(file.toPath());
+        Set<Date> datesEncountered = new HashSet<>();
+        if ((backupsList.length - retainFiles.size()) > Bootstrap.getConfig().getBackupRetention()) {
+            while (dayCounter < Bootstrap.getConfig().getBackupRetention()) {
+                Calendar cal = Calendar.getInstance();
+                cal.setTime(new Date());
+                cal.set(Calendar.HOUR_OF_DAY, 0);
+                cal.set(Calendar.MINUTE, 0);
+                cal.set(Calendar.SECOND, 0);
+                cal.set(Calendar.MILLISECOND, 0);
+                cal.add(Calendar.DAY_OF_MONTH, -dayCounter);
+                for (File file : backupsList) {
+                    String parsedDate = sdf.format(cal.getTime());
+                    if (file.getName().startsWith(parsedDate.substring(0, 10)) && datesEncountered.add(cal.getTime()))
+                        retainFiles.add(file.toPath());
+                }
+                dayCounter++;
             }
-            dayCounter++;
         }
-        for (File file : directory.listFiles()) {
+        for (File file : backupsList) {
             if (retainFiles.contains(file.toPath()) || !file.getName().endsWith(".zip")) continue;
             try {
                 Files.delete(file.toPath());
@@ -169,11 +234,42 @@ public class Backuper {
         LOGGER.info("Gotowe! (usunięto {} backupów)", i);
     }
 
+    private boolean isBackupOlderThan24H(String fileName) {
+        Date date = parseDate(fileName);
+        if (date == null) return true;
+        return new Date().getTime() - date.getTime() > TimeUnit.HOURS.toMillis(24);
+    }
+
+    private Date parseDate(String fileName) {
+        try {
+            return sdf.parse(fileName.substring(0, 13));
+        } catch (StringIndexOutOfBoundsException | ParseException ex) {
+            return null;
+        }
+    }
+
+    private void updateDigest(MessageDigest dig, File f) throws InterruptedException, IOException {
+        if (!f.isDirectory()) {
+            try (FileInputStream fis = new FileInputStream(f)) {
+                byte[] buffer = new byte[4096];
+                int read;
+                while ((read = fis.read(buffer)) > -1) {
+                    checkInterruption();
+                    dig.update(buffer, 0, read);
+                }
+            }
+        } else {
+            for (File file : f.listFiles()) {
+                updateDigest(dig, file);
+            }
+        }
+    }
+
     private void checkInterruption() throws InterruptedException {
         if (Thread.interrupted()) throw new InterruptedException();
     }
 
-    private void compressZip(ZipOutputStream zos, File file) throws InterruptedException, IOException {
+    private void compressZip(ZipOutputStream zos, MessageDigest md, File file) throws InterruptedException, IOException {
         checkInterruption();
         String fileName = Paths.get("./").normalize().relativize(file.toPath().normalize()).toString().replace('\\', '/');
         ZipEntry zipEntry = new ZipEntry(file.isDirectory() ? (fileName.endsWith("/") ? fileName : fileName + "/") : fileName);
@@ -189,11 +285,12 @@ public class Backuper {
         try {
             if (!file.isDirectory()) {
                 try (FileInputStream fis = new FileInputStream(file)) {
-                    byte[] buffer = new byte[2048];
+                    byte[] buffer = new byte[4096];
                     int read;
                     while ((read = fis.read(buffer)) > -1) {
                         checkInterruption();
                         zos.write(buffer, 0, read);
+                        md.update(buffer, 0, read);
                     }
                 }
             }
@@ -202,7 +299,7 @@ public class Backuper {
         }
         if (file.isDirectory()) {
             for (File listFile : file.listFiles()) {
-                compressZip(zos, listFile);
+                compressZip(zos, md, listFile);
             }
         }
     }
