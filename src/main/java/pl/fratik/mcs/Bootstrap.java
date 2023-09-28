@@ -99,7 +99,13 @@ public class Bootstrap {
             LOGGER.debug("Startuję nasłuch...");
             ChannelFuture f = b.bind(port).sync();
             LOGGER.info("Gotowy na połączenia!");
-            if (config.isBackupsEnabled()) backuper = new Backuper();
+            if (config.isBackupsEnabled()) {
+                try {
+                    backuper = new Backuper();
+                } catch (IllegalArgumentException ex) {
+                    LOGGER.error("Nie udało się uaktywnić backupów!", ex);
+                }
+            }
             channel = f.channel();
             channel.closeFuture().sync();
             LOGGER.info("Nasłuch zakończony!");
