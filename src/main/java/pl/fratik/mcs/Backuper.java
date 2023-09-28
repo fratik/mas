@@ -34,9 +34,7 @@ import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 import java.util.zip.ZipOutputStream;
@@ -53,10 +51,19 @@ public class Backuper {
     // this doesn't override interrupts – that's intentional:
     // when you Ctrl+C the server while a backup's in progress, we assume you know what you're doing
     @Getter private volatile boolean criticalBackupInProgress = false;
+    private ScheduledFuture<?> task;
 
     public Backuper() {
-        backupExecutor = Executors.newSingleThreadScheduledExecutor();
+        backupExecutor = new ScheduledThreadPoolExecutor(1);
+        ((ScheduledThreadPoolExecutor) backupExecutor).setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
         autobackup();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try {
+                shutdown();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }));
     }
 
     private static Date getNextHour() {
@@ -75,14 +82,14 @@ public class Backuper {
 
     private void autobackup() {
         backup();
-        if (!backupExecutor.isShutdown()) backupExecutor.schedule(this::backup, getNextHour().getTime(), TimeUnit.MILLISECONDS);
+        if (!backupExecutor.isShutdown()) task = backupExecutor.schedule(this::backup, getNextHour().getTime(), TimeUnit.MILLISECONDS);
     }
 
     public boolean shutdown() throws InterruptedException {
         backupExecutor.shutdown();
-        if (!backupExecutor.isTerminated()) {
-            LOGGER.info("Pozwalam backupom 15s na dokończenie...");
-            if (!backupExecutor.awaitTermination(15, TimeUnit.SECONDS)) {
+        if (!backupExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+            LOGGER.info("Pozwalam backupom 5s na dokończenie...");
+            if (!backupExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
                 LOGGER.warn("Wymuszam zakończenie.");
                 backupExecutor.shutdownNow();
                 if (backupExecutor.awaitTermination(10, TimeUnit.SECONDS)) LOGGER.info("Backup przerwany.");
