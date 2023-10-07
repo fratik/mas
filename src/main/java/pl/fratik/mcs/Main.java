@@ -104,7 +104,7 @@ public class Main extends ChannelInboundHandlerAdapter {
                 if (msg instanceof StatusRequestPacket) {
                     LOGGER.debug("<- Status");
                     ctx.writeAndFlush(new StatusResponsePacket("{\"version\":{\"name\":\"Offline\",\"protocol\":-1}," +
-                            "\"players\":{\"max\":0,\"online\":0},\"description\":{\"text\":\"Serwer jest offline\"}}"));
+                            "\"players\":{\"max\":1,\"online\":0},\"description\":{\"text\":\"Serwer jest offline\"}}"));
                 } else if (msg instanceof PingRequestPacket pmsg) {
                     LOGGER.debug("<-> Ping");
                     ctx.writeAndFlush(new PingResponsePacket(pmsg.getVal()));
