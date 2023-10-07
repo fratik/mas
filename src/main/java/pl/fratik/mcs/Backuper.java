@@ -64,7 +64,7 @@ public class Backuper {
         }
         backupExecutor = new ScheduledThreadPoolExecutor(1);
         ((ScheduledThreadPoolExecutor) backupExecutor).setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
-        autobackup();
+        backupExecutor.execute(this::autobackup);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try {
                 shutdown();
