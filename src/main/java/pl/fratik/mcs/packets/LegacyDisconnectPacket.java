@@ -27,12 +27,12 @@ public class LegacyDisconnectPacket implements ResponsePacket {
     private final String text;
 
     @Override
-    public int calculateLength() {
+    public int calculateLength(int protVer) {
         return 3 + text.getBytes(StandardCharsets.UTF_16BE).length;
     }
 
     @Override
-    public void encode(ByteBuf buf) {
+    public void encode(ByteBuf buf, int protVer) {
         buf.writeByte(0xFF);
         byte[] bytes = text.getBytes(StandardCharsets.UTF_16BE);
         buf.writeShort(text.length());

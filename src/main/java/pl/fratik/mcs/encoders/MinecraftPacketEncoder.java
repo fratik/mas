@@ -20,16 +20,18 @@ package pl.fratik.mcs.encoders;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.MessageToByteEncoder;
+import pl.fratik.mcs.Main;
 import pl.fratik.mcs.packets.ResponsePacket;
 
 public class MinecraftPacketEncoder extends MessageToByteEncoder<ResponsePacket> {
+
     @Override
     protected void encode(ChannelHandlerContext ctx, ResponsePacket msg, ByteBuf out) throws Exception {
-        msg.encode(out);
+        msg.encode(out, ctx.pipeline().get(Main.class).getProtVer());
     }
 
     @Override
     protected ByteBuf allocateBuffer(ChannelHandlerContext ctx, ResponsePacket msg, boolean preferDirect) throws Exception {
-        return ctx.alloc().heapBuffer(msg.calculateLength());
+        return ctx.alloc().heapBuffer(msg.calculateLength(ctx.pipeline().get(Main.class).getProtVer()));
     }
 }

@@ -20,6 +20,6 @@ package pl.fratik.mcs.packets;
 import io.netty.buffer.ByteBuf;
 
 public interface ResponsePacket {
-    @Deprecated int calculateLength();
-    void encode(ByteBuf buf);
+    @Deprecated int calculateLength(int protVer);
+    void encode(ByteBuf buf, int protVer);
 }

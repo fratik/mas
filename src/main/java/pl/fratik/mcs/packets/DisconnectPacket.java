@@ -91,12 +91,12 @@ public class DisconnectPacket implements ResponsePacket {
     }
 
     @Override
-    public int calculateLength() {
+    public int calculateLength(int protVer) {
         return 1 + getSerialized().getBytes(StandardCharsets.UTF_8).length;
     }
 
     @Override
-    public void encode(ByteBuf buf) {
+    public void encode(ByteBuf buf, int protVer) {
         ProtocolUtil.writeVarInt(buf, 0x00);
         ProtocolUtil.writeString(buf, getSerialized());
     }

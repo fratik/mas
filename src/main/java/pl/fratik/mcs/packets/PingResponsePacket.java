@@ -26,12 +26,12 @@ public class PingResponsePacket implements ResponsePacket {
     private final long val;
 
     @Override
-    public int calculateLength() {
+    public int calculateLength(int protVer) {
         return 9;
     }
 
     @Override
-    public void encode(ByteBuf buf) {
+    public void encode(ByteBuf buf, int protVer) {
         ProtocolUtil.writeVarInt(buf, 0x01);
         buf.writeLong(val);
     }

@@ -33,7 +33,8 @@ public class ProtocolDecoderRegistry {
         Map<IntIntPair, Class<? extends ProtocolDecoder>> reg = new HashMap<>();
         reg.put(IntIntPair.of(340, 758), ProtocolDecoderNoKey.class);
         reg.put(IntIntPair.of(759, 760), ProtocolDecoderSigData.class);
-        reg.put(IntIntPair.of(761, 763), ProtocolDecoderUUID.class);
+        reg.put(IntIntPair.of(761, 763), ProtocolDecoderOptionalUUID.class);
+        reg.put(IntIntPair.of(764, 768), ProtocolDecoderUUID.class);
         registry = Collections.unmodifiableMap(reg);
     }
 

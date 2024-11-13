@@ -28,12 +28,12 @@ public class StatusResponsePacket implements ResponsePacket {
     private final String json;
 
     @Override
-    public int calculateLength() {
+    public int calculateLength(int protVer) {
         return 1 + json.getBytes(StandardCharsets.UTF_8).length;
     }
 
     @Override
-    public void encode(ByteBuf buf) {
+    public void encode(ByteBuf buf, int protVer) {
         ProtocolUtil.writeVarInt(buf, 0x00);
         ProtocolUtil.writeString(buf, json);
     }

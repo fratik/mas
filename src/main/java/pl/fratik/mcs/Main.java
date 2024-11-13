@@ -89,7 +89,7 @@ public class Main extends ChannelInboundHandlerAdapter {
                     protVer = ((HandshakePacket) msg).getProtVer();
                     if (!ProtocolDecoderRegistry.hasDecoderForVersion(protVer)) {
                         ctx.writeAndFlush(new DisconnectPacket(new TranslateChatComponent("multiplayer.disconnect.incompatible",
-                                new ChatComponent[]{new TextChatComponent("1.12.2-1.20.1")}, "Niezgodny klient! Użyj: 1.12.2-1.20.1", 735),
+                                new ChatComponent[]{new TextChatComponent("1.12.2-1.21.1")}, "Niezgodny klient! Użyj: 1.12.2-1.21.1", 735),
                                 protVer)).addListener(ChannelFutureListener.CLOSE);
                         LOGGER.debug("<- Nieprawidłowa wersja: {}", protVer);
                     }

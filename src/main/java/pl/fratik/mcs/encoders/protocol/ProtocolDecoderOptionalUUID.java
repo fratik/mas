@@ -26,8 +26,8 @@ import pl.fratik.mcs.packets.LoginStartPacket;
 
 import java.util.List;
 
-public class ProtocolDecoderUUID extends ProtocolDecoder {
-    public ProtocolDecoderUUID(Main main) {
+public class ProtocolDecoderOptionalUUID extends ProtocolDecoder {
+    public ProtocolDecoderOptionalUUID(Main main) {
         super(main);
     }
 
@@ -36,7 +36,7 @@ public class ProtocolDecoderUUID extends ProtocolDecoder {
         int id = ProtocolUtil.readVarInt(in);
         switch (id) {
             case 0x00 -> {
-                out.add(new LoginStartPacket(ProtocolUtil.readString(in), ProtocolUtil.readUUID(in), null));
+                out.add(new LoginStartPacket(ProtocolUtil.readString(in), in.readBoolean() ? ProtocolUtil.readUUID(in) : null, null));
             }
             case 0x01 -> {
                 int sslen = ProtocolUtil.readVarInt(in);

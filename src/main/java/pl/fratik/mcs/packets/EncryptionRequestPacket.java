@@ -27,17 +27,18 @@ public class EncryptionRequestPacket implements ResponsePacket {
     private final byte[] verifyToken;
 
     @Override
-    public int calculateLength() {
+    public int calculateLength(int protVer) {
         return 0;
     }
 
     @Override
-    public void encode(ByteBuf buf) {
+    public void encode(ByteBuf buf, int protVer) {
         ProtocolUtil.writeVarInt(buf, 0x01);
         ProtocolUtil.writeString(buf, "");
         ProtocolUtil.writeVarInt(buf, publicKey.length);
         buf.writeBytes(publicKey);
         ProtocolUtil.writeVarInt(buf, verifyToken.length);
         buf.writeBytes(verifyToken);
+        if (protVer >= 766) buf.writeBoolean(true);
     }
 }
